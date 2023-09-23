@@ -12,7 +12,7 @@
 //#define DEBUG
 
 const int MAX_LINE = 1E5;
-const int MAX_ASM  = 1E5;
+const int MAX_ASM  = 1E6;
 const char* DELIMS = "\n\r\t";
 const int IGNORE_ALLELE = 0;
 const char REPLACE_CHAR = ' ';
@@ -216,16 +216,18 @@ int main(int argc, char* argv[])
   if (!quiet) fprintf(stderr, "\rLoaded %d samples x %d allele calls\n", nrow, ncol);
 
   // build an output matrix (one dimensional j*nrow+i access)
-  int* dist = calloc_safe(nrow*nrow, sizeof(int));
+  //int* dist = calloc_safe(nrow*nrow, sizeof(int));
   
-  for (int j=0; j < nrow; j++) {
-    if (!quiet) fprintf(stderr, "\rCalculating distances: %.2f%%", (j+1)*100.0/nrow);
-    for (int i=0; i < j; i++) {
-      int d = distance(call[j], call[i], ncol, maxdiff);
-      dist[j*nrow+i] = dist[i*nrow+j] = d;  // matrix is diagonal symetric
-    }
-  }
-  if (!quiet) fprintf(stderr, "\nWriting distance matrix to stdout...\n");
+  //for (int j=0; j < nrow; j++) {
+  //  if (!quiet) fprintf(stderr, "\rCalculating distances: %.2f%%", (j+1)*100.0/nrow);	
+  //  for (int i=0; i < j; i++) {
+  //    int d = distance(call[j], call[i], ncol, maxdiff);
+  //    dist[j*nrow+i] = dist[i*nrow+j] = d;  // matrix is diagonal symetric
+  //  }
+  //}
+  
+  
+  if (!quiet) fprintf(stderr, "\nCalculating distances and writing distance matrix to stdout...\n");
 
   // separator choice
  
@@ -238,13 +240,25 @@ int main(int argc, char* argv[])
   printf("\n");
 
   // Print matrix
+  int* dist = calloc_safe(nrow, sizeof(int));
+  
   for (int j=0; j < nrow; j++) {
+	if (!quiet) fprintf(stderr, "\rCalculating distances: %.2f%%", (j+1)*100.0/nrow);	
     printf("%s", id[j]);
     int start = (mode & 1) ?    0 : j   ;  // upper?
     int end   = (mode & 2) ? nrow : j+1 ;  // lower?
+	// Calculate dist line all at once
+	// Also use threads...	
     for (int i=start; i < end; i++) {
-      printf("%c%d", sep, dist[j*nrow + i]);
+	  int d = distance(call[j], call[i], ncol, maxdiff);
+      dist[i] = d;  // matrix is diagonal symetric
     }
+	// and then print it
+    for (int i=start; i < end; i++) {
+      //printf("%c%d", sep, dist[j*nrow + i]);
+	  printf("%c%d", sep, dist[i]);
+	  //printf("%c%d", sep, distance(call[j], call[i], ncol, maxdiff));
+    }	
     printf("\n");
   }
 
@@ -255,7 +269,7 @@ int main(int argc, char* argv[])
   }
   free(id);
   free(call);
-  free(dist);
+  //free(dist);
   free(buf);
 
   if (!quiet) fprintf(stderr, "\nDone.\n");
