@@ -1,10 +1,9 @@
-
 CC = gcc
-CFLAGS = -Wall -Wextra -Ofast
+CFLAGS = -pthread -Wall -Wextra -Ofast
 LIBSDIR =
 LIBS = -lm
 
-EXE = cgmlst-dists
+EXE = cgmlst-dists-64
 PREFIX = /usr/local
 TESTDIR = test
 
@@ -28,5 +27,3 @@ check: $(EXE)
 	./$(EXE) -q $(TESTDIR)/chewie.tab
 	./$(EXE) -c $(TESTDIR)/boring.tab
 	./$(EXE) -m 1 $(TESTDIR)/100.tab > /dev/null
-	
-	

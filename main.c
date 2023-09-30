@@ -5,20 +5,48 @@
 #include <getopt.h>
 #include <ctype.h>
 #include <sys/types.h>
+#include <inttypes.h>
+#include <pthread.h>
+#include <math.h>
 
 #define VERSION "0.4.0"
 #define EXENAME "cgmlst-dists"
-#define GITHUB_URL "https://github.com/tseemann/cgmlst-dists"
+#define GITHUB_URL "https://github.com/genpat-it/cgmlst-dists-64"
 //#define DEBUG
 
-const int MAX_LINE = 1E5;
-const int MAX_ASM  = 1E6;
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+	 
+#define min(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+	 
+const int32_t MAX_LINE = 1E5;
+const int32_t MAX_ASM  = 1E5;
 const char* DELIMS = "\n\r\t";
-const int IGNORE_ALLELE = 0;
+const uint8_t IGNORE_ALLELE = 0;
 const char REPLACE_CHAR = ' ';
 
+
+struct targs {
+  int32_t quiet;
+  int64_t thread;
+  int64_t t1;
+  int64_t t2;	
+  uint32_t** call;
+  uint32_t* dist;
+  //int64_t j;
+  int64_t nrow;
+  size_t ncol;
+  uint32_t maxdiff;
+};
+
+
 //------------------------------------------------------------------------
-void show_help(int retcode)
+void show_help(uint32_t retcode)
 {
   FILE* out = (retcode == EXIT_SUCCESS ? stdout : stderr);
 
@@ -32,16 +60,16 @@ void show_help(int retcode)
       "  -c\tUse comma instead of tab in output\n"
       "  -m N\tOutput: 1=lower-tri 2=upper-tri 3=full [3]\n"
       "  -x N\tStop calculating beyond this distance [9999]\n"
-//      "  -t N\tNumber of threads to use [1]\n"
+      "  -t N\tNumber of threads to use [1]\n"
       "URL\n  %s\n"};
   fprintf(out, str, EXENAME, GITHUB_URL);
   exit(retcode);
 }
 
 //------------------------------------------------------------------------
-int distance(const int* restrict a, const int* restrict b, size_t len, int maxdiff)
+uint32_t distance(const uint32_t* restrict a, const uint32_t* restrict b, size_t len, uint32_t maxdiff)
 {
-  int diff=0;
+  uint32_t diff=0;
   for (size_t i=0; i < len; i++) {
     if (a[i] != b[i] && a[i] != IGNORE_ALLELE && b[i] != IGNORE_ALLELE) {
       diff++;
@@ -49,6 +77,38 @@ int distance(const int* restrict a, const int* restrict b, size_t len, int maxdi
     }
   }
   return diff;
+}
+
+void *thread_function(void *args)
+{
+
+  struct targs *values;
+  values = (struct targs *)args;  
+  
+  int32_t quiet = values->quiet;
+  
+  int64_t thread = values->thread;
+  
+  int64_t t1 = values->t1;
+  int64_t t2 = values->t2;
+  
+  fprintf(stderr, "Thread %ld is running from row %ld to %ld\n",thread,t1,t2);
+	 
+  uint32_t** call = values->call;
+  uint32_t* dist = values->dist;
+
+  int64_t nrow = values->nrow;
+  size_t ncol = values->ncol;
+  uint32_t maxdiff = values->maxdiff;
+  
+  for (int64_t j=0; j < (t2-t1); j++) {	 
+    if (!quiet) fprintf(stderr, "\rThread %ld working: %.2f%%", thread, (j+1)*100.0/(t2-t1));  
+	for (int64_t i=0; i < nrow; i++) {
+		uint32_t d = distance(call[j], call[i], ncol, maxdiff);
+		dist[j*nrow+i] = d;
+	}
+  }
+  fprintf(stderr, "Thread %ld finished\n",values->thread);
 }
 
 //------------------------------------------------------------------------
@@ -64,7 +124,7 @@ void* calloc_safe(size_t nmemb, size_t size)
 
 //------------------------------------------------------------------------
 
-int str_replace(char* str, char* old, char* new)
+uint32_t str_replace(char* str, char* old, char* new)
 {
   size_t sl = strlen(str);
   size_t ol = strlen(old);
@@ -115,10 +175,10 @@ void cleanup_line(char* str)
 }
 
 //------------------------------------------------------------------------
-int main(int argc, char* argv[])
+int32_t main(int argc, char* argv[])
 {
   // parse command line parameters
-  int opt, quiet = 0, csv = 0, threads = 1, mode = 3, maxdiff = 9999;
+  int32_t opt, quiet = 0, csv = 0, threads = 1, mode = 3, maxdiff = 9999;
   while ((opt = getopt(argc, argv, "hqcvm:t:x:")) != -1) {
     switch (opt) {
       case 'h': show_help(EXIT_SUCCESS); break;
@@ -145,7 +205,6 @@ int main(int argc, char* argv[])
   // say hello
   if (!quiet) {
     fprintf(stderr, "This is %s %s\n", EXENAME, VERSION);
-    // fprintf(stderr, "Using %d threads (threads>1 currently unsupported).\n", threads);
   }
 
   // read file one line at a time
@@ -159,10 +218,10 @@ int main(int argc, char* argv[])
   char* buf = (char*) calloc_safe( MAX_LINE, sizeof(char) );
 
   char** id  = (char**) calloc_safe( MAX_ASM, sizeof(char*) );
-  int** call = (int**) calloc_safe( MAX_ASM, sizeof(int*) );
+  uint32_t** call = (uint32_t**) calloc_safe( MAX_ASM, sizeof(uint32_t*) );
 
-  int row = -1;
-  int ncol = 0;
+  int32_t row = -1;
+  uint32_t ncol = 0;
    
   while (fgets(buf, MAX_LINE, in))
   {
@@ -172,9 +231,8 @@ int main(int argc, char* argv[])
     // scan for tab separated values
     char* save;
     char* s = strtok_r(buf, DELIMS, &save);
-    int col = -1;
+    int32_t col = -1;
     while (s) {
-      //fprintf(stderr, "DEBUG: row=%d col=%d s='%s'\n", row, col, s);
       if (row >= 0) {
         if (col < 0) {
           if (strlen(s)==0) {
@@ -182,7 +240,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
           }
           id[row] = strdup(s);
-          call[row] = (int*) calloc_safe(ncol, sizeof(int*));
+          call[row] = (uint32_t*) calloc_safe(ncol, sizeof(uint32_t*));
         }
         else {
           // INF-xxxx are returned as -ve numbers
@@ -209,67 +267,93 @@ int main(int argc, char* argv[])
       exit(-1);
     }
   }
-  int nrow = row;
+  int64_t nrow = row;
   fclose(in);
   
   // what we collected
-  if (!quiet) fprintf(stderr, "\rLoaded %d samples x %d allele calls\n", nrow, ncol);
+  if (!quiet) fprintf(stderr, "\rLoaded %ld samples x %d allele calls\n", nrow, ncol);  
+   	
+  uint32_t *dist_list[threads];
+  
+  pthread_t tids[threads];
+  struct targs *argset[threads];
+	
+  int64_t interval = nrow / threads;
+  int64_t interval_remainder = nrow % threads;
+	
+  for(int64_t t=0;t<threads;t++){
+		
+	struct targs *th = (struct targs *)malloc(sizeof(struct targs));
+	
+	th->quiet = quiet;
+	th->thread = t;
+	th->t1 = t*interval;
+	th->t2 = (t+1)*interval;
+	
+	//Last thread will take whatever remains...
+	if(t==(threads-1)){
+		th->t2 = th->t2 + interval_remainder;
+	}
 
-  // build an output matrix (one dimensional j*nrow+i access)
-  //int* dist = calloc_safe(nrow*nrow, sizeof(int));
-  
-  //for (int j=0; j < nrow; j++) {
-  //  if (!quiet) fprintf(stderr, "\rCalculating distances: %.2f%%", (j+1)*100.0/nrow);	
-  //  for (int i=0; i < j; i++) {
-  //    int d = distance(call[j], call[i], ncol, maxdiff);
-  //    dist[j*nrow+i] = dist[i*nrow+j] = d;  // matrix is diagonal symetric
-  //  }
-  //}
-  
-  
-  if (!quiet) fprintf(stderr, "\nCalculating distances and writing distance matrix to stdout...\n");
+	uint32_t *thread_dist = calloc_safe((th->t2 - th->t1)*nrow, sizeof(uint32_t));	
+	th->dist = thread_dist;
+	
+	dist_list[t] = thread_dist;
+	
+	th->call = call;
+
+	th->nrow = nrow;
+	th->ncol = ncol;
+	th->maxdiff = maxdiff;
+		
+	pthread_t newThread;
+	pthread_create(&newThread, NULL, thread_function, (void *)th);
+	tids[t] = newThread;
+	argset[t] = th;
+  }
+	
+  // wait for them to finish... 
+  // hopefully they don't have to wait much after one finishes...
+  for(int64_t t=0;t<threads;t++){
+	pthread_join(tids[t], NULL);
+  }
+	
+  if (!quiet) fprintf(stderr, "\nWriting distance matrix to stdout...\n");
 
   // separator choice
  
   // Print header row
   char sep = csv ? ',' : '\t';
-  for (int j=0; j < nrow; j++) {
+  for (uint32_t j=0; j < nrow; j++) {
     if (j==0) printf(EXENAME);
     printf("%c%s", sep, id[j]);
   }
   printf("\n");
 
   // Print matrix
-  int* dist = calloc_safe(nrow, sizeof(int));
-  
-  for (int j=0; j < nrow; j++) {
-	if (!quiet) fprintf(stderr, "\rCalculating distances: %.2f%%", (j+1)*100.0/nrow);	
-    printf("%s", id[j]);
-    int start = (mode & 1) ?    0 : j   ;  // upper?
-    int end   = (mode & 2) ? nrow : j+1 ;  // lower?
-	// Calculate dist line all at once
-	// Also use threads...	
-    for (int i=start; i < end; i++) {
-	  int d = distance(call[j], call[i], ncol, maxdiff);
-      dist[i] = d;  // matrix is diagonal symetric
+  for(int64_t t=0;t<threads;t++){  
+    for (int64_t j=0; j < (argset[t]->t2 - argset[t]->t1) ; j++) {
+      printf("%s", id[j]);
+      uint32_t start = (mode & 1) ?    0 : j   ;  // upper?
+      uint32_t end   = (mode & 2) ? nrow : j+1 ;  // lower?
+      for (int64_t i=start; i < end; i++) {
+        printf("%c%d", sep, dist_list[t][j*nrow + i]);
+      }
+      printf("\n");
     }
-	// and then print it
-    for (int i=start; i < end; i++) {
-      //printf("%c%d", sep, dist[j*nrow + i]);
-	  printf("%c%d", sep, dist[i]);
-	  //printf("%c%d", sep, distance(call[j], call[i], ncol, maxdiff));
-    }	
-    printf("\n");
   }
 
   // free RAM
-  for (int i=0; i < nrow; i++) {
+  for(int64_t t=0;t<threads;t++){
+	free(argset[t]);
+	free(dist_list[t]);
+  }
+  for (uint32_t i=0; i < nrow; i++) {
     free( id[i] );
     free( call[i] );
   }
   free(id);
   free(call);
-  //free(dist);
   free(buf);
 
   if (!quiet) fprintf(stderr, "\nDone.\n");
@@ -278,4 +362,3 @@ int main(int argc, char* argv[])
 }
 
 //------------------------------------------------------------------------
-
