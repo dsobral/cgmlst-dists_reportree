@@ -333,7 +333,7 @@ int32_t main(int argc, char* argv[])
   // Print matrix
   for(int64_t t=0;t<threads;t++){  
     for (int64_t j=0; j < (argset[t]->t2 - argset[t]->t1) ; j++) {
-      printf("%s", id[j]);
+      printf("%s", id[t*interval + j]);
       uint32_t start = (mode & 1) ?    0 : j   ;  // upper?
       uint32_t end   = (mode & 2) ? nrow : j+1 ;  // lower?
       for (int64_t i=start; i < end; i++) {
